@@ -63,12 +63,12 @@ program
   .action((options) => {
     const feeds = loadFeeds();
     if (feeds.feeds.find((feed) => feed.name === options.name || feed.url === options.url)) {
-      console.error(chalk.red("Feed already exists with that name or URL."));
+      console.error(chalk.red("❌ Feed already exists with that name or URL."));
       process.exit(1);
     }
     feeds.feeds.push({ name: options.name, url: options.url });
     saveFeeds(feeds);
-    console.log(chalk.green(`Added ${options.name} (${options.url}).`));
+    console.log(chalk.green(`✅ Added ${options.name} (${options.url}).`));
   });
 
 program
@@ -79,12 +79,12 @@ program
     const feeds = loadFeeds();
     const target = resolveFeedIdentifier(feeds.feeds, identifier);
     if (!target) {
-      console.error(chalk.red("Feed not found."));
+      console.error(chalk.red("❌ Feed not found."));
       process.exit(1);
     }
     feeds.feeds = feeds.feeds.filter((feed) => feed !== target);
     saveFeeds(feeds);
-    console.log(chalk.yellow(`Removed ${target.name} (${target.url}).`));
+    console.log(chalk.yellow(`⚠️ Removed ${target.name} (${target.url}).`));
   });
 
 program
@@ -93,7 +93,7 @@ program
   .action(() => {
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
-      console.log(chalk.yellow("No feeds saved yet. Add one with 'agregato add'."));
+      console.log(chalk.yellow("⚠️ No feeds saved yet. Add one with 'agregato add'."));
       return;
     }
     feeds.feeds.forEach((feed) => {
@@ -109,13 +109,13 @@ program
   .action(async (options) => {
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
-      console.log(chalk.yellow("No feeds saved yet. Add one with 'agregato add'."));
+      console.log(chalk.yellow("⚠️ No feeds saved yet. Add one with 'agregato add'."));
       return;
     }
 
     const limit = Number(options.limit ?? 5);
     if (Number.isNaN(limit) || limit <= 0) {
-      console.error(chalk.red("Limit must be a positive number."));
+      console.error(chalk.red("❌ Limit must be a positive number."));
       process.exit(1);
     }
 
@@ -138,7 +138,7 @@ program
         }));
         results.push({ feed, items });
       } catch (error) {
-        console.error(chalk.red(`Failed to fetch ${feed.name}: ${(error as Error).message}`));
+        console.error(chalk.red(`❌ Failed to fetch ${feed.name}: ${(error as Error).message}`));
         results.push({ feed, items: [] });
       }
     }
@@ -149,16 +149,16 @@ program
     }
 
     for (const result of results) {
-      console.log(chalk.cyan(`\n${result.feed.name}`));
-      console.log(chalk.cyan("-".repeat(result.feed.name.length)));
+      console.log(chalk.cyan(`\n📰 ${result.feed.name}`));
+      console.log(chalk.cyan("-".repeat(result.feed.name.length + 2)));
       if (result.items.length === 0) {
-        console.log(chalk.yellow("No items found."));
+        console.log(chalk.yellow("⚠️ No items found."));
         continue;
       }
       result.items.forEach((item) => {
         const title = chalk.white(item.title ?? "(untitled)");
         const date = item.pubDate ? chalk.gray(` • ${item.pubDate}`) : "";
-        const link = item.link ? chalk.blue(`\n  ${item.link}`) : "";
+        const link = item.link ? chalk.blue(`\n  🔗 ${item.link}`) : "";
         console.log(`- ${title}${date}${link}`);
       });
     }
