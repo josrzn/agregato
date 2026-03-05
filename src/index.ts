@@ -10,6 +10,68 @@ import chalk from "chalk";
 const program = new Command();
 const parser = new Parser();
 
+type Theme = "default" | "vivid" | "mono";
+
+type UiStyle = {
+  icons: {
+    success: string;
+    warn: string;
+    error: string;
+    feed: string;
+    link: string;
+  };
+  success: (text: string) => string;
+  warn: (text: string) => string;
+  error: (text: string) => string;
+  header: (text: string) => string;
+  title: (text: string) => string;
+  date: (text: string) => string;
+  link: (text: string) => string;
+};
+
+const createUiStyle = (theme: Theme, iconsEnabled: boolean): UiStyle => {
+  const noColor = theme === "mono";
+  const colorize = (fn: (text: string) => string) => (noColor ? (text: string) => text : fn);
+  const palette = theme === "vivid"
+    ? {
+        success: chalk.greenBright,
+        warn: chalk.yellowBright,
+        error: chalk.redBright,
+        header: chalk.cyanBright,
+        title: chalk.whiteBright,
+        date: chalk.gray,
+        link: chalk.blueBright,
+      }
+    : {
+        success: chalk.green,
+        warn: chalk.yellow,
+        error: chalk.red,
+        header: chalk.cyan,
+        title: chalk.white,
+        date: chalk.gray,
+        link: chalk.blue,
+      };
+
+  return {
+    icons: {
+      success: iconsEnabled ? "✅" : "",
+      warn: iconsEnabled ? "⚠️" : "",
+      error: iconsEnabled ? "❌" : "",
+      feed: iconsEnabled ? "📰" : "",
+      link: iconsEnabled ? "🔗" : "",
+    },
+    success: colorize(palette.success),
+    warn: colorize(palette.warn),
+    error: colorize(palette.error),
+    header: colorize(palette.header),
+    title: colorize(palette.title),
+    date: colorize(palette.date),
+    link: colorize(palette.link),
+  };
+};
+
+const withIcon = (icon: string, text: string) => (icon ? `${icon} ${text}` : text);
+
 const APP_DIR = path.join(os.homedir(), ".agregato");
 const FEEDS_FILE = path.join(APP_DIR, "feeds.json");
 
@@ -53,7 +115,20 @@ const resolveFeedIdentifier = (feeds: Feed[], identifier: string): Feed | null =
 program
   .name("agregato")
   .description("Slick command-line RSS feed aggregator")
-  .version("1.0.0");
+  .version("1.0.0")
+  .option("--no-icons", "Disable icon output")
+  .option("--theme <theme>", "Color theme (default|vivid|mono)", "default");
+
+const getUi = () => {
+  const opts = program.opts<{ icons: boolean; theme: Theme }>();
+  const theme = (opts.theme ?? "default") as Theme;
+  if (!(["default", "vivid", "mono"] as Theme[]).includes(theme)) {
+    console.error(chalk.red(`❌ Invalid theme '${theme}'. Use default, vivid, or mono.`));
+    process.exit(1);
+  }
+  const iconsEnabled = opts.icons !== false;
+  return createUiStyle(theme, iconsEnabled);
+};
 
 program
   .command("add")
@@ -61,14 +136,15 @@ program
   .requiredOption("-n, --name <name>", "Feed name")
   .requiredOption("-u, --url <url>", "Feed URL")
   .action((options) => {
+    const ui = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.find((feed) => feed.name === options.name || feed.url === options.url)) {
-      console.error(chalk.red("❌ Feed already exists with that name or URL."));
+      console.error(ui.error(withIcon(ui.icons.error, "Feed already exists with that name or URL.")));
       process.exit(1);
     }
     feeds.feeds.push({ name: options.name, url: options.url });
     saveFeeds(feeds);
-    console.log(chalk.green(`✅ Added ${options.name} (${options.url}).`));
+    console.log(ui.success(withIcon(ui.icons.success, `Added ${options.name} (${options.url}).`)));
   });
 
 program
@@ -76,24 +152,26 @@ program
   .description("Remove a feed by name or url")
   .argument("<identifier>", "Feed name or url")
   .action((identifier) => {
+    const ui = getUi();
     const feeds = loadFeeds();
     const target = resolveFeedIdentifier(feeds.feeds, identifier);
     if (!target) {
-      console.error(chalk.red("❌ Feed not found."));
+      console.error(ui.error(withIcon(ui.icons.error, "Feed not found.")));
       process.exit(1);
     }
     feeds.feeds = feeds.feeds.filter((feed) => feed !== target);
     saveFeeds(feeds);
-    console.log(chalk.yellow(`⚠️ Removed ${target.name} (${target.url}).`));
+    console.log(ui.warn(withIcon(ui.icons.warn, `Removed ${target.name} (${target.url}).`)));
   });
 
 program
   .command("list")
   .description("List saved feeds")
   .action(() => {
+    const ui = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
-      console.log(chalk.yellow("⚠️ No feeds saved yet. Add one with 'agregato add'."));
+      console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
       return;
     }
     feeds.feeds.forEach((feed) => {
@@ -107,15 +185,16 @@ program
   .option("-l, --limit <number>", "Max items per feed", "5")
   .option("-j, --json", "Output JSON instead of plain text", false)
   .action(async (options) => {
+    const ui = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
-      console.log(chalk.yellow("⚠️ No feeds saved yet. Add one with 'agregato add'."));
+      console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
       return;
     }
 
     const limit = Number(options.limit ?? 5);
     if (Number.isNaN(limit) || limit <= 0) {
-      console.error(chalk.red("❌ Limit must be a positive number."));
+      console.error(ui.error(withIcon(ui.icons.error, "Limit must be a positive number.")));
       process.exit(1);
     }
 
@@ -138,7 +217,7 @@ program
         }));
         results.push({ feed, items });
       } catch (error) {
-        console.error(chalk.red(`❌ Failed to fetch ${feed.name}: ${(error as Error).message}`));
+        console.error(ui.error(withIcon(ui.icons.error, `Failed to fetch ${feed.name}: ${(error as Error).message}`)));
         results.push({ feed, items: [] });
       }
     }
@@ -149,16 +228,16 @@ program
     }
 
     for (const result of results) {
-      console.log(chalk.cyan(`\n📰 ${result.feed.name}`));
-      console.log(chalk.cyan("-".repeat(result.feed.name.length + 2)));
+      console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
+      console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
       if (result.items.length === 0) {
-        console.log(chalk.yellow("⚠️ No items found."));
+        console.log(ui.warn(withIcon(ui.icons.warn, "No items found.")));
         continue;
       }
       result.items.forEach((item) => {
-        const title = chalk.white(item.title ?? "(untitled)");
-        const date = item.pubDate ? chalk.gray(` • ${item.pubDate}`) : "";
-        const link = item.link ? chalk.blue(`\n  🔗 ${item.link}`) : "";
+        const title = ui.title(item.title ?? "(untitled)");
+        const date = item.pubDate ? ui.date(` • ${item.pubDate}`) : "";
+        const link = item.link ? ui.link(`\n  ${withIcon(ui.icons.link, item.link)}`) : "";
         console.log(`- ${title}${date}${link}`);
       });
     }

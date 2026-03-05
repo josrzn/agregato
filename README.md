@@ -40,6 +40,19 @@ npm run dev -- fetch --limit 5
 npm run dev -- fetch --json
 ```
 
+### Themes and icons
+
+```bash
+# Disable icons
+npm run dev -- --no-icons fetch
+
+# Vivid colors
+npm run dev -- --theme vivid fetch
+
+# Monochrome (no colors)
+npm run dev -- --theme mono fetch
+```
+
 ## Build
 
 ```bash
