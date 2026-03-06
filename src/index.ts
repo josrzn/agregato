@@ -6,6 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import Parser from "rss-parser";
 import chalk from "chalk";
+import { XMLParser, XMLBuilder } from "fast-xml-parser";
 
 const program = new Command();
 const parser = new Parser();
@@ -71,6 +72,53 @@ const createUiStyle = (theme: Theme, iconsEnabled: boolean): UiStyle => {
 };
 
 const withIcon = (icon: string, text: string) => (icon ? `${icon} ${text}` : text);
+
+const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
+const xmlBuilder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: "@_", format: true });
+
+const collectOpmlFeeds = (nodes: unknown, collected: Feed[] = []): Feed[] => {
+  if (!nodes) return collected;
+  if (Array.isArray(nodes)) {
+    nodes.forEach((node) => collectOpmlFeeds(node, collected));
+    return collected;
+  }
+  if (typeof nodes === "object") {
+    const outline = nodes as Record<string, unknown>;
+    const xmlUrl = outline["@_xmlUrl"] as string | undefined;
+    const title = (outline["@_title"] as string | undefined) ?? (outline["@_text"] as string | undefined);
+    if (xmlUrl) {
+      collected.push({ name: title ?? xmlUrl, url: xmlUrl });
+    }
+    const children = outline["outline"] as unknown;
+    if (children) {
+      collectOpmlFeeds(children, collected);
+    }
+  }
+  return collected;
+};
+
+const buildOpml = (feeds: Feed[]): string => {
+  const outlines = feeds.map((feed) => ({
+    "@_text": feed.name,
+    "@_title": feed.name,
+    "@_type": "rss",
+    "@_xmlUrl": feed.url,
+  }));
+
+  const opml = {
+    opml: {
+      "@_version": "2.0",
+      head: {
+        title: "Agregato Feeds",
+      },
+      body: {
+        outline: outlines,
+      },
+    },
+  };
+
+  return xmlBuilder.build(opml);
+};
 
 const APP_DIR = path.join(os.homedir(), ".agregato");
 const FEEDS_FILE = path.join(APP_DIR, "feeds.json");
@@ -177,6 +225,55 @@ program
     feeds.feeds.forEach((feed) => {
       console.log(`- ${feed.name} (${feed.url})`);
     });
+  });
+
+program
+  .command("import-opml")
+  .description("Import feeds from an OPML file")
+  .argument("<file>", "Path to OPML file")
+  .option("--merge", "Merge with existing feeds instead of replacing", false)
+  .action((file, options) => {
+    const ui = getUi();
+    const content = fs.readFileSync(file, "utf-8");
+    const parsed = xmlParser.parse(content) as Record<string, unknown>;
+    const outlines = (parsed?.opml as Record<string, unknown> | undefined)?.body as Record<string, unknown> | undefined;
+    const imported = collectOpmlFeeds(outlines?.outline ?? outlines);
+    if (imported.length === 0) {
+      console.log(ui.warn(withIcon(ui.icons.warn, "No feeds found in OPML.")));
+      return;
+    }
+
+    const existing = loadFeeds();
+    const merged = options.merge ? [...existing.feeds] : [];
+    const seen = new Set(merged.map((feed) => `${feed.name}|${feed.url}`));
+    let added = 0;
+
+    for (const feed of imported) {
+      const key = `${feed.name}|${feed.url}`;
+      if (seen.has(key)) continue;
+      merged.push(feed);
+      seen.add(key);
+      added += 1;
+    }
+
+    saveFeeds({ feeds: merged });
+    console.log(ui.success(withIcon(ui.icons.success, `Imported ${added} feeds.`)));
+  });
+
+program
+  .command("export-opml")
+  .description("Export feeds to an OPML file")
+  .argument("<file>", "Path to OPML file")
+  .action((file) => {
+    const ui = getUi();
+    const feeds = loadFeeds();
+    if (feeds.feeds.length === 0) {
+      console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
+      return;
+    }
+    const xml = buildOpml(feeds.feeds);
+    fs.writeFileSync(file, xml);
+    console.log(ui.success(withIcon(ui.icons.success, `Exported ${feeds.feeds.length} feeds to ${file}.`)));
   });
 
 program

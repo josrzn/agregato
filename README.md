@@ -53,6 +53,19 @@ npm run dev -- --theme vivid fetch
 npm run dev -- --theme mono fetch
 ```
 
+### OPML import/export
+
+```bash
+# Import feeds (replace existing)
+npm run dev -- import-opml ./feeds.opml
+
+# Import feeds (merge with existing)
+npm run dev -- import-opml ./feeds.opml --merge
+
+# Export feeds
+npm run dev -- export-opml ./feeds.opml
+```
+
 ## Build
 
 ```bash
