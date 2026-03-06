@@ -4,12 +4,11 @@ import { Command } from "commander";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import Parser from "rss-parser";
 import chalk from "chalk";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
+import { extractFromXml } from "@extractus/feed-extractor";
 
 const program = new Command();
-const parser = new Parser();
 
 type Theme = "default" | "vivid" | "mono";
 
@@ -306,11 +305,16 @@ program
 
     for (const feed of feeds.feeds) {
       try {
-        const parsed = await parser.parseURL(feed.url);
+        const response = await fetch(feed.url);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        }
+        const xml = await response.text();
+        const parsed = await extractFromXml(xml);
         const items = (parsed.items ?? []).slice(0, limit).map((item) => ({
           title: item.title,
           link: item.link,
-          pubDate: item.pubDate,
+          pubDate: item.published ?? item.updated,
         }));
         results.push({ feed, items });
       } catch (error) {

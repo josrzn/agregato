@@ -2,6 +2,8 @@
 
 A slick, command-line RSS feed aggregator built with TypeScript.
 
+Built for Node.js 18+ and uses the WHATWG URL API via `@extractus/feed-extractor`.
+
 ## Setup
 
 ```bash
