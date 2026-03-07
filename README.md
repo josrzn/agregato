@@ -42,6 +42,12 @@ Add `--verbose` to show failed feeds:
 npm run dev -- fetch --limit 5 --verbose
 ```
 
+Stream results as they complete:
+
+```bash
+npm run dev -- fetch --stream
+```
+
 If you only see "No items found" for an Atom feed, re-run after updating to the latest version (Atom items live under `entries`).
 
 ### JSON output

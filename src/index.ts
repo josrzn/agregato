@@ -255,6 +255,35 @@ const fetchFeed = async (feed: Feed): Promise<FetchResult> => {
   }
 };
 
+const renderFetchResult = (
+  result: FetchResult,
+  ui: UiStyle,
+  hyperlinksEnabled: boolean,
+  verbose: boolean,
+) => {
+  if (result.error && !verbose) {
+    return;
+  }
+  console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
+  console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
+  if (result.error) {
+    console.log(ui.error(withIcon(ui.icons.error, result.error)));
+    return;
+  }
+  if (result.items.length === 0) {
+    console.log(ui.warn(withIcon(ui.icons.warn, "No items found.")));
+    return;
+  }
+  result.items.forEach((item) => {
+    const title = ui.title(item.title ?? "(untitled)");
+    const date = item.pubDate ? ui.date(` • ${item.pubDate}`) : "";
+    const link = item.link
+      ? ui.link(`\n  ${withIcon(ui.icons.link, formatLink(item.link, item.link, hyperlinksEnabled))}`)
+      : "";
+    console.log(`- ${title}${date}${link}`);
+  });
+};
+
 program
   .name("agregato")
   .description("Slick command-line RSS feed aggregator")
@@ -386,6 +415,7 @@ program
   .option("-l, --limit <number>", "Max items per feed", "5")
   .option("-j, --json", "Output JSON instead of plain text", false)
   .option("-v, --verbose", "Show errors for feeds that fail to fetch", false)
+  .option("-s, --stream", "Stream results as each feed completes", false)
   .action(async (options) => {
     const { ui, hyperlinksEnabled } = getUi();
     const feeds = loadFeeds();
@@ -407,7 +437,20 @@ program
       if (result.items.length > 0) {
         result.items = result.items.slice(0, limit);
       }
+
+      if (options.stream) {
+        if (options.json) {
+          console.log(JSON.stringify(result));
+        } else {
+          renderFetchResult(result, ui, hyperlinksEnabled, options.verbose);
+        }
+      }
+
       results.push(result);
+    }
+
+    if (options.stream) {
+      return;
     }
 
     if (options.json) {
@@ -416,27 +459,7 @@ program
     }
 
     for (const result of results) {
-      if (result.error && !options.verbose) {
-        continue;
-      }
-      console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
-      console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
-      if (result.error) {
-        console.log(ui.error(withIcon(ui.icons.error, result.error)));
-        continue;
-      }
-      if (result.items.length === 0) {
-        console.log(ui.warn(withIcon(ui.icons.warn, "No items found.")));
-        continue;
-      }
-      result.items.forEach((item) => {
-        const title = ui.title(item.title ?? "(untitled)");
-        const date = item.pubDate ? ui.date(` • ${item.pubDate}`) : "";
-        const link = item.link
-          ? ui.link(`\n  ${withIcon(ui.icons.link, formatLink(item.link, item.link, hyperlinksEnabled))}`)
-          : "";
-        console.log(`- ${title}${date}${link}`);
-      });
+      renderFetchResult(result, ui, hyperlinksEnabled, options.verbose);
     }
   });
 
