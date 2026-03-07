@@ -36,6 +36,14 @@ npm run dev -- remove "NYTimes"
 npm run dev -- fetch --limit 5
 ```
 
+Add `--verbose` to show failed feeds:
+
+```bash
+npm run dev -- fetch --limit 5 --verbose
+```
+
+If you only see "No items found" for an Atom feed, re-run after updating to the latest version (Atom items live under `entries`).
+
 ### JSON output
 
 ```bash
@@ -63,6 +71,10 @@ npm run dev -- import-opml ./feeds.opml
 
 # Import feeds (merge with existing)
 npm run dev -- import-opml ./feeds.opml --merge
+
+# Verify an OPML import
+npm run dev -- import-opml ./feeds.opml --merge
+npm run dev -- list
 
 # Export feeds
 npm run dev -- export-opml ./feeds.opml

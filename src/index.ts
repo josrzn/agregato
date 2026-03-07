@@ -75,25 +75,59 @@ const withIcon = (icon: string, text: string) => (icon ? `${icon} ${text}` : tex
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
 const xmlBuilder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: "@_", format: true });
 
-const collectOpmlFeeds = (nodes: unknown, collected: Feed[] = []): Feed[] => {
-  if (!nodes) return collected;
+const normalizeOpmlAttr = (outline: Record<string, unknown>, keys: string[]): string | undefined => {
+  const candidates = new Map<string, unknown>();
+  Object.entries(outline).forEach(([key, value]) => {
+    candidates.set(key.toLowerCase(), value);
+  });
+  for (const key of keys) {
+    const direct = outline[key];
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+    const prefixed = outline[`@_${key}`];
+    if (typeof prefixed === "string" && prefixed.trim()) return prefixed.trim();
+    const lower = candidates.get(key.toLowerCase());
+    if (typeof lower === "string" && lower.trim()) return lower.trim();
+  }
+  return undefined;
+};
+
+type OpmlImportState = {
+  feeds: Feed[];
+  skipped: number;
+};
+
+const resolveOpmlFeedUrl = (outline: Record<string, unknown>): string | undefined => {
+  const xmlUrl = normalizeOpmlAttr(outline, ["xmlUrl", "xmlurl", "feedUrl", "feedurl"]);
+  if (xmlUrl) return xmlUrl;
+  const type = normalizeOpmlAttr(outline, ["type"])?.toLowerCase();
+  const url = normalizeOpmlAttr(outline, ["url"]);
+  if (url && (type === "rss" || type === "atom" || type === "feed")) {
+    return url;
+  }
+  return undefined;
+};
+
+const collectOpmlFeeds = (nodes: unknown, state: OpmlImportState) => {
+  if (!nodes) return;
   if (Array.isArray(nodes)) {
-    nodes.forEach((node) => collectOpmlFeeds(node, collected));
-    return collected;
+    nodes.forEach((node) => collectOpmlFeeds(node, state));
+    return;
   }
   if (typeof nodes === "object") {
     const outline = nodes as Record<string, unknown>;
-    const xmlUrl = outline["@_xmlUrl"] as string | undefined;
-    const title = (outline["@_title"] as string | undefined) ?? (outline["@_text"] as string | undefined);
+    const xmlUrl = resolveOpmlFeedUrl(outline);
+    const title = normalizeOpmlAttr(outline, ["title", "text", "name"])
+      ?? normalizeOpmlAttr(outline, ["htmlUrl", "htmlurl"]);
     if (xmlUrl) {
-      collected.push({ name: title ?? xmlUrl, url: xmlUrl });
+      state.feeds.push({ name: title ?? xmlUrl, url: xmlUrl });
+    } else if (normalizeOpmlAttr(outline, ["outline", "text", "title", "name"]) || outline["outline"]) {
+      state.skipped += 1;
     }
     const children = outline["outline"] as unknown;
     if (children) {
-      collectOpmlFeeds(children, collected);
+      collectOpmlFeeds(children, state);
     }
   }
-  return collected;
 };
 
 const buildOpml = (feeds: Feed[]): string => {
@@ -146,6 +180,12 @@ type Feed = {
   url: string;
 };
 
+type FetchResult = {
+  feed: Feed;
+  items: Array<{ title?: string; link?: string; pubDate?: string; published?: string; updated?: string }>;
+  error?: string;
+};
+
 type StoredFeeds = {
   feeds: Feed[];
 };
@@ -176,6 +216,37 @@ const resolveFeedIdentifier = (feeds: Feed[], identifier: string): Feed | null =
   if (byName) return byName;
   const byUrl = feeds.find((feed) => feed.url === identifier);
   return byUrl ?? null;
+};
+
+const fetchFeed = async (feed: Feed): Promise<FetchResult> => {
+  try {
+    const response = await fetch(feed.url, {
+      headers: {
+        "User-Agent": "Agregato/0.1 (+https://example.com)",
+        Accept: "application/rss+xml, application/atom+xml, text/xml, application/xml;q=0.9, */*;q=0.8",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const xml = await response.text();
+    if (!xml.trim().startsWith("<") && !contentType.includes("xml")) {
+      throw new Error("Response was not XML");
+    }
+    const parsed = await extractFromXml(xml);
+    const entries = (parsed.items ?? parsed.entries ?? []) as Array<{ title?: string; link?: string; published?: string; updated?: string }>;
+    const items = entries.map((item) => ({
+      title: item.title,
+      link: item.link,
+      pubDate: item.published ?? item.updated,
+      published: item.published,
+      updated: item.updated,
+    }));
+    return { feed, items };
+  } catch (error) {
+    return { feed, items: [], error: (error as Error).message };
+  }
 };
 
 program
@@ -254,9 +325,11 @@ program
     const ui = getUi();
     const content = fs.readFileSync(file, "utf-8");
     const parsed = xmlParser.parse(content) as Record<string, unknown>;
-    const outlines = (parsed?.opml as Record<string, unknown> | undefined)?.body as Record<string, unknown> | undefined;
-    const imported = collectOpmlFeeds(outlines?.outline ?? outlines);
-    if (imported.length === 0) {
+    const opml = parsed?.opml as Record<string, unknown> | undefined;
+    const outlines = opml?.body as Record<string, unknown> | undefined;
+    const state: OpmlImportState = { feeds: [], skipped: 0 };
+    collectOpmlFeeds(outlines?.outline ?? outlines ?? opml, state);
+    if (state.feeds.length === 0) {
       console.log(ui.warn(withIcon(ui.icons.warn, "No feeds found in OPML.")));
       return;
     }
@@ -266,7 +339,7 @@ program
     const seen = new Set(merged.map((feed) => `${feed.name}|${feed.url}`));
     let added = 0;
 
-    for (const feed of imported) {
+    for (const feed of state.feeds) {
       const key = `${feed.name}|${feed.url}`;
       if (seen.has(key)) continue;
       merged.push(feed);
@@ -275,7 +348,7 @@ program
     }
 
     saveFeeds({ feeds: merged });
-    console.log(ui.success(withIcon(ui.icons.success, `Imported ${added} feeds.`)));
+    console.log(ui.success(withIcon(ui.icons.success, `Imported ${added} feeds (skipped ${state.skipped} outlines).`)));
   });
 
 program
@@ -299,6 +372,7 @@ program
   .description("Fetch latest items from all feeds")
   .option("-l, --limit <number>", "Max items per feed", "5")
   .option("-j, --json", "Output JSON instead of plain text", false)
+  .option("-v, --verbose", "Show errors for feeds that fail to fetch", false)
   .action(async (options) => {
     const ui = getUi();
     const feeds = loadFeeds();
@@ -313,33 +387,14 @@ program
       process.exit(1);
     }
 
-    const results = [] as Array<{
-      feed: Feed;
-      items: Array<{
-        title?: string;
-        link?: string;
-        pubDate?: string;
-      }>;
-    }>;
+    const results: FetchResult[] = [];
 
     for (const feed of feeds.feeds) {
-      try {
-        const response = await fetch(feed.url);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        }
-        const xml = await response.text();
-        const parsed = await extractFromXml(xml);
-        const items = (parsed.items ?? []).slice(0, limit).map((item) => ({
-          title: item.title,
-          link: item.link,
-          pubDate: item.published ?? item.updated,
-        }));
-        results.push({ feed, items });
-      } catch (error) {
-        console.error(ui.error(withIcon(ui.icons.error, `Failed to fetch ${feed.name}: ${(error as Error).message}`)));
-        results.push({ feed, items: [] });
+      const result = await fetchFeed(feed);
+      if (result.items.length > 0) {
+        result.items = result.items.slice(0, limit);
       }
+      results.push(result);
     }
 
     if (options.json) {
@@ -348,8 +403,15 @@ program
     }
 
     for (const result of results) {
+      if (result.error && !options.verbose) {
+        continue;
+      }
       console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
       console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
+      if (result.error) {
+        console.log(ui.error(withIcon(ui.icons.error, result.error)));
+        continue;
+      }
       if (result.items.length === 0) {
         console.log(ui.warn(withIcon(ui.icons.warn, "No items found.")));
         continue;
@@ -394,35 +456,34 @@ program
     const empty: Feed[] = [];
 
     for (const feed of feeds.feeds) {
-      try {
-        const response = await fetch(feed.url);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        }
-        const xml = await response.text();
-        const parsed = await extractFromXml(xml);
-        const items = parsed.items ?? [];
+      const result = await fetchFeed(feed);
+      if (result.error) {
+        failures.push(feed);
+        continue;
+      }
 
-        if (thresholds.requireItems && items.length === 0) {
-          empty.push(feed);
+      const items = result.items.map((item) => ({
+        published: item.published ?? item.pubDate,
+        updated: item.updated ?? item.pubDate,
+      }));
+
+      if (thresholds.requireItems && items.length === 0) {
+        empty.push(feed);
+        continue;
+      }
+
+      if (thresholds.staleDays !== null) {
+        const mostRecent = mostRecentItemDate(items);
+        if (!mostRecent) {
+          if (thresholds.requireItems) {
+            empty.push(feed);
+          }
           continue;
         }
-
-        if (thresholds.staleDays !== null) {
-          const mostRecent = mostRecentItemDate(items);
-          if (!mostRecent) {
-            if (thresholds.requireItems) {
-              empty.push(feed);
-            }
-            continue;
-          }
-          const ageDays = (now - mostRecent.getTime()) / (1000 * 60 * 60 * 24);
-          if (ageDays > thresholds.staleDays) {
-            stale.push(feed);
-          }
+        const ageDays = (now - mostRecent.getTime()) / (1000 * 60 * 60 * 24);
+        if (ageDays > thresholds.staleDays) {
+          stale.push(feed);
         }
-      } catch (error) {
-        failures.push(feed);
       }
     }
 

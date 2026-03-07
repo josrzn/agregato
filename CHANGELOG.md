@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 ### Added
 - `prune` command to retire inactive feeds with `light`, `medium`, and `hard` levels.
+- `--verbose` option for fetch to show failed feeds.
+
+### Changed
+- Fetching feeds now uses a custom User-Agent and skips failed feeds unless `--verbose` is set.
+- Extracted feed items from either `items` or `entries` to support Atom feeds.
 
 ## [0.1] - 2026-03-06
 ### Added
