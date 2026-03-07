@@ -119,6 +119,25 @@ const buildOpml = (feeds: Feed[]): string => {
   return xmlBuilder.build(opml);
 };
 
+const parseItemDate = (value?: string): Date | null => {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return null;
+  return new Date(timestamp);
+};
+
+const mostRecentItemDate = (items: Array<{ published?: string; updated?: string }>): Date | null => {
+  let mostRecent: Date | null = null;
+  for (const item of items) {
+    const candidate = parseItemDate(item.published) ?? parseItemDate(item.updated);
+    if (!candidate) continue;
+    if (!mostRecent || candidate > mostRecent) {
+      mostRecent = candidate;
+    }
+  }
+  return mostRecent;
+};
+
 const APP_DIR = path.join(os.homedir(), ".agregato");
 const FEEDS_FILE = path.join(APP_DIR, "feeds.json");
 
@@ -342,6 +361,99 @@ program
         console.log(`- ${title}${date}${link}`);
       });
     }
+  });
+
+program
+  .command("prune")
+  .description("Retire inactive feeds based on activity level")
+  .option("-l, --level <level>", "Prune level (light|medium|hard)", "medium")
+  .option("-d, --dry-run", "Preview which feeds would be removed", false)
+  .action(async (options) => {
+    const ui = getUi();
+    const feeds = loadFeeds();
+    if (feeds.feeds.length === 0) {
+      console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
+      return;
+    }
+
+    const level = (options.level ?? "medium").toLowerCase();
+    if (!(["light", "medium", "hard"] as const).includes(level as "light" | "medium" | "hard")) {
+      console.error(ui.error(withIcon(ui.icons.error, `Invalid level '${options.level}'. Use light, medium, or hard.`)));
+      process.exit(1);
+    }
+
+    const thresholds = {
+      light: { staleDays: null as number | null, requireItems: false },
+      medium: { staleDays: 180, requireItems: false },
+      hard: { staleDays: 90, requireItems: true },
+    }[level as "light" | "medium" | "hard"];
+
+    const now = Date.now();
+    const failures: Feed[] = [];
+    const stale: Feed[] = [];
+    const empty: Feed[] = [];
+
+    for (const feed of feeds.feeds) {
+      try {
+        const response = await fetch(feed.url);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        }
+        const xml = await response.text();
+        const parsed = await extractFromXml(xml);
+        const items = parsed.items ?? [];
+
+        if (thresholds.requireItems && items.length === 0) {
+          empty.push(feed);
+          continue;
+        }
+
+        if (thresholds.staleDays !== null) {
+          const mostRecent = mostRecentItemDate(items);
+          if (!mostRecent) {
+            if (thresholds.requireItems) {
+              empty.push(feed);
+            }
+            continue;
+          }
+          const ageDays = (now - mostRecent.getTime()) / (1000 * 60 * 60 * 24);
+          if (ageDays > thresholds.staleDays) {
+            stale.push(feed);
+          }
+        }
+      } catch (error) {
+        failures.push(feed);
+      }
+    }
+
+    const toRemove = new Set<Feed>();
+    for (const feed of failures) {
+      toRemove.add(feed);
+    }
+    for (const feed of stale) {
+      toRemove.add(feed);
+    }
+    for (const feed of empty) {
+      toRemove.add(feed);
+    }
+
+    const removalList = feeds.feeds.filter((feed) => toRemove.has(feed));
+    if (removalList.length === 0) {
+      console.log(ui.success(withIcon(ui.icons.success, "No feeds to prune.")));
+      return;
+    }
+
+    if (options.dryRun) {
+      console.log(ui.warn(withIcon(ui.icons.warn, `Dry run: ${removalList.length} feeds would be removed.`)));
+      removalList.forEach((feed) => {
+        console.log(`- ${feed.name} (${feed.url})`);
+      });
+      return;
+    }
+
+    const remaining = feeds.feeds.filter((feed) => !toRemove.has(feed));
+    saveFeeds({ feeds: remaining });
+    console.log(ui.success(withIcon(ui.icons.success, `Pruned ${removalList.length} feeds.`)));
   });
 
 program.parseAsync(process.argv);

@@ -68,6 +68,21 @@ npm run dev -- import-opml ./feeds.opml --merge
 npm run dev -- export-opml ./feeds.opml
 ```
 
+### Prune inactive feeds
+
+```bash
+# Preview what would be removed
+npm run dev -- prune --level medium --dry-run
+
+# Remove inactive feeds
+npm run dev -- prune --level hard
+```
+
+Levels:
+- **light**: remove feeds that fail to fetch.
+- **medium**: light + no items within 180 days (feeds with no date are skipped).
+- **hard**: medium + remove feeds with zero items.
+
 ## Build
 
 ```bash
