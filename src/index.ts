@@ -72,6 +72,12 @@ const createUiStyle = (theme: Theme, iconsEnabled: boolean): UiStyle => {
 
 const withIcon = (icon: string, text: string) => (icon ? `${icon} ${text}` : text);
 
+const formatLink = (label: string, url: string, enabled: boolean) => {
+  if (!enabled) return label;
+  const escaped = url.replace(/\u001b/g, "");
+  return `\u001b]8;;${escaped}\u001b\\${label}\u001b]8;;\u001b\\`;
+};
+
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
 const xmlBuilder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: "@_", format: true });
 
@@ -254,17 +260,19 @@ program
   .description("Slick command-line RSS feed aggregator")
   .version("1.0.0")
   .option("--no-icons", "Disable icon output")
-  .option("--theme <theme>", "Color theme (default|vivid|mono)", "default");
+  .option("--theme <theme>", "Color theme (default|vivid|mono)", "default")
+  .option("--force-hyperlinks", "Force OSC-8 clickable hyperlinks");
 
 const getUi = () => {
-  const opts = program.opts<{ icons: boolean; theme: Theme }>();
+  const opts = program.opts<{ icons: boolean; theme: Theme; forceHyperlinks: boolean }>();
   const theme = (opts.theme ?? "default") as Theme;
   if (!(["default", "vivid", "mono"] as Theme[]).includes(theme)) {
     console.error(chalk.red(`❌ Invalid theme '${theme}'. Use default, vivid, or mono.`));
     process.exit(1);
   }
   const iconsEnabled = opts.icons !== false;
-  return createUiStyle(theme, iconsEnabled);
+  const hyperlinksEnabled = opts.forceHyperlinks === true;
+  return { ui: createUiStyle(theme, iconsEnabled), hyperlinksEnabled };
 };
 
 program
@@ -273,7 +281,7 @@ program
   .requiredOption("-n, --name <name>", "Feed name")
   .requiredOption("-u, --url <url>", "Feed URL")
   .action((options) => {
-    const ui = getUi();
+    const { ui, hyperlinksEnabled } = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.find((feed) => feed.name === options.name || feed.url === options.url)) {
       console.error(ui.error(withIcon(ui.icons.error, "Feed already exists with that name or URL.")));
@@ -281,7 +289,8 @@ program
     }
     feeds.feeds.push({ name: options.name, url: options.url });
     saveFeeds(feeds);
-    console.log(ui.success(withIcon(ui.icons.success, `Added ${options.name} (${options.url}).`)));
+    const url = formatLink(options.url, options.url, hyperlinksEnabled);
+    console.log(ui.success(withIcon(ui.icons.success, `Added ${options.name} (${url}).`)));
   });
 
 program
@@ -289,7 +298,7 @@ program
   .description("Remove a feed by name or url")
   .argument("<identifier>", "Feed name or url")
   .action((identifier) => {
-    const ui = getUi();
+    const { ui, hyperlinksEnabled } = getUi();
     const feeds = loadFeeds();
     const target = resolveFeedIdentifier(feeds.feeds, identifier);
     if (!target) {
@@ -298,21 +307,23 @@ program
     }
     feeds.feeds = feeds.feeds.filter((feed) => feed !== target);
     saveFeeds(feeds);
-    console.log(ui.warn(withIcon(ui.icons.warn, `Removed ${target.name} (${target.url}).`)));
+    const url = formatLink(target.url, target.url, hyperlinksEnabled);
+    console.log(ui.warn(withIcon(ui.icons.warn, `Removed ${target.name} (${url}).`)));
   });
 
 program
   .command("list")
   .description("List saved feeds")
   .action(() => {
-    const ui = getUi();
+    const { ui, hyperlinksEnabled } = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
       console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
       return;
     }
     feeds.feeds.forEach((feed) => {
-      console.log(`- ${feed.name} (${feed.url})`);
+      const url = formatLink(feed.url, feed.url, hyperlinksEnabled);
+      console.log(`- ${feed.name} (${url})`);
     });
   });
 
@@ -356,7 +367,7 @@ program
   .description("Export feeds to an OPML file")
   .argument("<file>", "Path to OPML file")
   .action((file) => {
-    const ui = getUi();
+    const { ui, hyperlinksEnabled } = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
       console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
@@ -364,7 +375,9 @@ program
     }
     const xml = buildOpml(feeds.feeds);
     fs.writeFileSync(file, xml);
-    console.log(ui.success(withIcon(ui.icons.success, `Exported ${feeds.feeds.length} feeds to ${file}.`)));
+    const resolved = path.resolve(file);
+    const fileLink = formatLink(resolved, `file://${resolved}`, hyperlinksEnabled);
+    console.log(ui.success(withIcon(ui.icons.success, `Exported ${feeds.feeds.length} feeds to ${fileLink}.`)));
   });
 
 program
@@ -374,7 +387,7 @@ program
   .option("-j, --json", "Output JSON instead of plain text", false)
   .option("-v, --verbose", "Show errors for feeds that fail to fetch", false)
   .action(async (options) => {
-    const ui = getUi();
+    const { ui, hyperlinksEnabled } = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
       console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
@@ -419,7 +432,9 @@ program
       result.items.forEach((item) => {
         const title = ui.title(item.title ?? "(untitled)");
         const date = item.pubDate ? ui.date(` • ${item.pubDate}`) : "";
-        const link = item.link ? ui.link(`\n  ${withIcon(ui.icons.link, item.link)}`) : "";
+        const link = item.link
+          ? ui.link(`\n  ${withIcon(ui.icons.link, formatLink(item.link, item.link, hyperlinksEnabled))}`)
+          : "";
         console.log(`- ${title}${date}${link}`);
       });
     }
@@ -431,7 +446,7 @@ program
   .option("-l, --level <level>", "Prune level (light|medium|hard)", "medium")
   .option("-d, --dry-run", "Preview which feeds would be removed", false)
   .action(async (options) => {
-    const ui = getUi();
+    const { ui } = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
       console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));

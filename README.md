@@ -50,11 +50,14 @@ If you only see "No items found" for an Atom feed, re-run after updating to the 
 npm run dev -- fetch --json
 ```
 
-### Themes and icons
+### Themes, icons, and hyperlinks
 
 ```bash
 # Disable icons
 npm run dev -- --no-icons fetch
+
+# Force OSC-8 hyperlinks (default is plain URLs)
+npm run dev -- --force-hyperlinks fetch
 
 # Vivid colors
 npm run dev -- --theme vivid fetch
