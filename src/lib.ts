@@ -149,6 +149,23 @@ export const extractItemsFromXml = async (xml: string): Promise<ExtractedItem[]>
   }));
 };
 
+export type FlatRenderOptions = {
+  feedName: string;
+  title: string;
+  date: string;
+  link: string;
+  maxWidth: number;
+  maxContentLength?: number;
+  titlesOnly: boolean;
+};
+
+export type FlatRenderParts = {
+  feedLabel: string;
+  title: string;
+  date: string;
+  link: string;
+};
+
 export const computeFlatParts = (params: {
   title: string;
   date: string;
@@ -192,6 +209,32 @@ export const computeFlatParts = (params: {
     title: truncateText(rawTitle, titleBudget),
     date: datePart,
     link: linkPart,
+  };
+};
+
+export const computeFlatRenderParts = (options: FlatRenderOptions): FlatRenderParts => {
+  const truncatedFeed = options.feedName.length > options.maxWidth
+    ? `${options.feedName.slice(0, Math.max(0, options.maxWidth - 1))}…`
+    : options.feedName;
+  const feedLabel = truncatedFeed.padEnd(options.maxWidth);
+
+  const maxContentLength = options.maxContentLength
+    ? Math.max(0, options.maxContentLength - (feedLabel.length + 3))
+    : undefined;
+
+  const parts = computeFlatParts({
+    title: options.title,
+    date: options.date,
+    link: options.link,
+    maxContentLength,
+    titlesOnly: options.titlesOnly,
+  });
+
+  return {
+    feedLabel,
+    title: parts.title,
+    date: parts.date,
+    link: parts.link,
   };
 };
 

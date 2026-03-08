@@ -3,6 +3,7 @@ import {
   DEFAULT_CONFIG,
   collectOpmlFeeds,
   computeFlatParts,
+  computeFlatRenderParts,
   extractItemsFromXml,
   loadConfig,
   resolveOpmlFeedUrl,
@@ -85,6 +86,19 @@ describe("computeFlatParts", () => {
     expect(parts.link).toBe("");
   });
 
+  it("preserves date and link when space allows", () => {
+    const parts = computeFlatParts({
+      title: "Short",
+      date: " • 2026-03-08",
+      link: "https://example.com",
+      maxContentLength: 80,
+      titlesOnly: false,
+    });
+    expect(parts.title).toBe("Short");
+    expect(parts.date).toBe(" • 2026-03-08");
+    expect(parts.link).toBe(" https://example.com");
+  });
+
   it("respects titlesOnly", () => {
     const parts = computeFlatParts({
       title: "Hello world",
@@ -96,6 +110,35 @@ describe("computeFlatParts", () => {
     expect(parts.title).toBe("Hello…");
     expect(parts.date).toBe("");
     expect(parts.link).toBe("");
+  });
+});
+
+describe("computeFlatRenderParts", () => {
+  it("pads and truncates feed labels", () => {
+    const parts = computeFlatRenderParts({
+      feedName: "Very Long Feed Name",
+      title: "Title",
+      date: "",
+      link: "",
+      maxWidth: 10,
+      maxContentLength: 50,
+      titlesOnly: true,
+    });
+    expect(parts.feedLabel.length).toBe(10);
+    expect(parts.feedLabel).toContain("…");
+  });
+
+  it("honors maxContentLength", () => {
+    const parts = computeFlatRenderParts({
+      feedName: "Feed",
+      title: "A very long title that should be truncated",
+      date: "",
+      link: "",
+      maxWidth: 10,
+      maxContentLength: 20,
+      titlesOnly: true,
+    });
+    expect(parts.title.length).toBeLessThanOrEqual(20);
   });
 });
 

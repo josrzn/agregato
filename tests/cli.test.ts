@@ -81,4 +81,42 @@ describe("CLI integration", () => {
       throw new Error(`Unexpected output:\n${output}\nSTDERR:\n${fetch.stderr}`);
     }
   });
+
+  it("exports and imports opml", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "agregato-home-"));
+    const env = {
+      ...process.env,
+      HOME: home,
+      HTTP_PROXY: "",
+      HTTPS_PROXY: "",
+      ALL_PROXY: "",
+      NO_PROXY: "127.0.0.1,localhost",
+    };
+
+    const build = spawnSync("npm", ["run", "build"], {
+      env,
+      encoding: "utf-8",
+      timeout: 20000,
+      stdio: "pipe",
+    });
+    if (build.status !== 0) {
+      throw new Error(`Build failed:\n${build.stderr}`);
+    }
+
+    const add = runCli(["add", "-n", "Test", "-u", feedUrl], env);
+    expect(add.status).toBe(0);
+
+    const opmlPath = path.join(home, "feeds.opml");
+    const exportResult = runCli(["export-opml", opmlPath], env);
+    expect(exportResult.status).toBe(0);
+
+    const remove = runCli(["remove", "Test"], env);
+    expect(remove.status).toBe(0);
+
+    const importResult = runCli(["import-opml", opmlPath], env);
+    expect(importResult.status).toBe(0);
+
+    const list = runCli(["list"], env);
+    expect(stripAnsi(list.stdout)).toContain("Test");
+  });
 });

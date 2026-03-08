@@ -13,6 +13,7 @@ import {
   StoredFeeds,
   Theme,
   collectOpmlFeeds,
+  computeFlatRenderParts,
   computeFlatParts,
   extractItemsFromXml,
   loadConfig,
@@ -269,28 +270,21 @@ const renderFetchResult = (
 
     if (options.flat) {
       const maxWidth = options.flatWidth ?? result.feed.name.length;
-      const truncatedFeed = result.feed.name.length > maxWidth
-        ? `${result.feed.name.slice(0, Math.max(0, maxWidth - 1))}…`
-        : result.feed.name;
-      const rawLabel = truncatedFeed.padEnd(maxWidth);
-      const feedLabel = chalk.reset(ui.header(rawLabel));
-      const separator = " | ";
-
       const rawTitle = titleText;
       const rawDate = item.pubDate ? ` • ${item.pubDate}` : "";
       const rawLink = item.link ? sanitizeUrl(item.link) : "";
-      const maxContentLength = maxLineLength
-        ? Math.max(0, maxLineLength - (rawLabel.length + separator.length))
-        : undefined;
 
-      const flatParts = computeFlatParts({
+      const flatParts = computeFlatRenderParts({
+        feedName: result.feed.name,
         title: rawTitle,
         date: rawDate,
         link: rawLink,
-        maxContentLength,
+        maxWidth,
+        maxContentLength: maxLineLength,
         titlesOnly: options.titlesOnly,
       });
 
+      const feedLabel = chalk.reset(ui.header(flatParts.feedLabel));
       const styledTitle = isToday
         ? ui.highlight(ui.title(flatParts.title))
         : ui.title(flatParts.title);
@@ -302,7 +296,7 @@ const renderFetchResult = (
       const content = options.titlesOnly
         ? styledTitle
         : `${styledTitle}${styledDate}${styledLink}`;
-      console.log(chalk.reset(`${feedLabel}${separator}${content}`));
+      console.log(chalk.reset(`${feedLabel} | ${content}`));
       return;
     }
 
