@@ -80,6 +80,15 @@ const formatLink = (label: string, url: string, enabled: boolean) => {
   return `\u001b]8;;${escaped}\u001b\\${label}\u001b]8;;\u001b\\`;
 };
 
+const truncateText = (value: string, maxLength: number) => {
+  if (maxLength <= 0) return "";
+  if (value.length <= maxLength) return value;
+  if (maxLength === 1) return "…";
+  return `${value.slice(0, maxLength - 1)}…`;
+};
+
+const flagPresent = (flag: string) => process.argv.includes(flag);
+
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
 const xmlBuilder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: "@_", format: true });
 
@@ -182,6 +191,7 @@ const mostRecentItemDate = (items: Array<{ published?: string; updated?: string 
 
 const APP_DIR = path.join(os.homedir(), ".agregato");
 const FEEDS_FILE = path.join(APP_DIR, "feeds.json");
+const CONFIG_FILE = path.join(APP_DIR, "config.json");
 
 type Feed = {
   name: string;
@@ -198,6 +208,32 @@ type StoredFeeds = {
   feeds: Feed[];
 };
 
+type AppConfig = {
+  flatWidth?: number;
+  flatMaxLength?: number;
+  flat?: boolean;
+  titlesOnly?: boolean;
+  noEmpty?: boolean;
+  compact?: boolean;
+  highlightToday?: boolean;
+  forceHyperlinks?: boolean;
+  theme?: Theme;
+  icons?: boolean;
+};
+
+const DEFAULT_CONFIG: Required<AppConfig> = {
+  flatWidth: 30,
+  flatMaxLength: 160,
+  flat: false,
+  titlesOnly: false,
+  noEmpty: false,
+  compact: false,
+  highlightToday: true,
+  forceHyperlinks: false,
+  theme: "default",
+  icons: true,
+};
+
 const ensureStorage = () => {
   if (!fs.existsSync(APP_DIR)) {
     fs.mkdirSync(APP_DIR, { recursive: true });
@@ -207,6 +243,36 @@ const ensureStorage = () => {
     fs.writeFileSync(FEEDS_FILE, JSON.stringify(initial, null, 2));
   }
 };
+
+const loadConfig = (configPath = CONFIG_FILE, required = false): Required<AppConfig> => {
+  ensureStorage();
+  if (!fs.existsSync(configPath)) {
+    if (required) {
+      throw new Error(`Config file not found at ${configPath}`);
+    }
+    return { ...DEFAULT_CONFIG };
+  }
+  const content = fs.readFileSync(configPath, "utf-8");
+  const parsed = JSON.parse(content) as AppConfig;
+  return { ...DEFAULT_CONFIG, ...parsed };
+};
+
+const readConfigForProgram = (): Required<AppConfig> => {
+  const configIndex = process.argv.indexOf("--config");
+  const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : undefined;
+  if (configIndex >= 0 && !configPath) {
+    console.error(chalk.red("❌ --config requires a path"));
+    process.exit(1);
+  }
+  try {
+    return loadConfig(configPath ? path.resolve(configPath) : CONFIG_FILE, Boolean(configPath));
+  } catch (error) {
+    console.error(chalk.red(`❌ ${(error as Error).message}`));
+    process.exit(1);
+  }
+};
+
+const configDefaults = readConfigForProgram();
 
 const loadFeeds = (): StoredFeeds => {
   ensureStorage();
@@ -267,6 +333,7 @@ const renderFetchResult = (
     titlesOnly: boolean;
     noEmpty: boolean;
     flatWidth?: number;
+    flatMaxLength?: number;
     highlightToday: boolean;
   },
 ) => {
@@ -312,6 +379,7 @@ const renderFetchResult = (
     const link = item.link
       ? formatLink(item.link, item.link, options.hyperlinksEnabled)
       : "";
+    const maxLineLength = options.flatMaxLength;
 
     if (options.flat) {
       const maxWidth = options.flatWidth ?? result.feed.name.length;
@@ -321,10 +389,12 @@ const renderFetchResult = (
       const rawLabel = truncated.padEnd(maxWidth);
       const feedLabel = ui.header(rawLabel);
       const separator = " | ";
-      const flatLine = options.titlesOnly
-        ? `${feedLabel}${separator}${title}`
-        : `${feedLabel}${separator}${title}${date}${link ? ` ${link}` : ""}`;
-      console.log(flatLine);
+      const content = options.titlesOnly
+        ? `${title}`
+        : `${title}${date}${link ? ` ${link}` : ""}`;
+      const combined = `${feedLabel}${separator}${content}`;
+      const truncatedLine = maxLineLength ? truncateText(combined, maxLineLength) : combined;
+      console.log(truncatedLine);
       return;
     }
 
@@ -345,20 +415,21 @@ program
   .description("Slick command-line RSS feed aggregator")
   .version("1.0.0")
   .option("--no-icons", "Disable icon output")
-  .option("--theme <theme>", "Color theme (default|vivid|mono)", "default")
+  .option("--theme <theme>", "Color theme (default|vivid|mono)", configDefaults.theme)
   .option("--force-hyperlinks", "Force OSC-8 clickable hyperlinks")
-  .option("--no-highlight-today", "Disable highlighting today's items");
+  .option("--no-highlight-today", "Disable highlighting today's items")
+  .option("--config <path>", "Path to config file (default ~/.agregato/config.json)");
 
 const getUi = () => {
-  const opts = program.opts<{ icons: boolean; theme: Theme; forceHyperlinks: boolean; highlightToday: boolean }>();
-  const theme = (opts.theme ?? "default") as Theme;
+  const opts = program.opts<{ icons?: boolean; theme?: Theme; forceHyperlinks?: boolean; highlightToday?: boolean }>();
+  const theme = (opts.theme ?? configDefaults.theme ?? "default") as Theme;
   if (!(["default", "vivid", "mono"] as Theme[]).includes(theme)) {
     console.error(chalk.red(`❌ Invalid theme '${theme}'. Use default, vivid, or mono.`));
     process.exit(1);
   }
-  const iconsEnabled = opts.icons !== false;
-  const hyperlinksEnabled = opts.forceHyperlinks === true;
-  const allowBold = opts.highlightToday !== false;
+  const iconsEnabled = opts.icons ?? configDefaults.icons ?? true;
+  const hyperlinksEnabled = opts.forceHyperlinks ?? configDefaults.forceHyperlinks ?? false;
+  const allowBold = opts.highlightToday ?? configDefaults.highlightToday ?? true;
   return { ui: createUiStyle(theme, iconsEnabled), hyperlinksEnabled, allowBold };
 };
 
@@ -468,17 +539,35 @@ program
   });
 
 program
+  .command("config")
+  .description("Manage configuration")
+  .command("init")
+  .description("Create a default config file")
+  .option("-f, --force", "Overwrite existing config", false)
+  .action((options) => {
+    const configPath = CONFIG_FILE;
+    if (fs.existsSync(configPath) && !options.force) {
+      console.error(chalk.red(`❌ Config already exists at ${configPath}. Use --force to overwrite.`));
+      process.exit(1);
+    }
+    ensureStorage();
+    fs.writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
+    console.log(chalk.green(`✅ Wrote config to ${configPath}.`));
+  });
+
+program
   .command("fetch")
   .description("Fetch latest items from all feeds")
   .option("-l, --limit <number>", "Max items per feed", "5")
   .option("-j, --json", "Output JSON instead of plain text", false)
-  .option("-v, --verbose", "Show errors for feeds that fail to fetch", false)
-  .option("-s, --stream", "Stream results as each feed completes", false)
-  .option("--titles-only", "Show only item titles", false)
-  .option("--flat", "Show one item per line across feeds", false)
-  .option("--no-empty", "Hide feeds with no items", false)
-  .option("--compact", "Shortcut for --flat --titles-only --no-empty", false)
-  .option("--flat-width <number>", "Max feed name width in flat mode", "30")
+  .option("-v, --verbose", "Show errors for feeds that fail to fetch")
+  .option("-s, --stream", "Stream results as each feed completes")
+  .option("--titles-only", "Show only item titles")
+  .option("--flat", "Show one item per line across feeds")
+  .option("--no-empty", "Hide feeds with no items")
+  .option("--compact", "Shortcut for --flat --titles-only --no-empty")
+  .option("--flat-width <number>", "Max feed name width in flat mode")
+  .option("--flat-max-length <number>", "Max line length in flat mode")
   .action(async (options) => {
     const { ui, hyperlinksEnabled, allowBold } = getUi();
     const feeds = loadFeeds();
@@ -493,33 +582,36 @@ program
       process.exit(1);
     }
 
-    const compact = options.compact === true;
-    const flat = options.flat || compact;
-    const titlesOnly = options.titlesOnly || compact;
-    const noEmpty = options.noEmpty || compact;
+    const compact = (options.compact ?? configDefaults.compact) === true;
+    const flat = (options.flat ?? configDefaults.flat) === true || compact;
+    const titlesOnly = (options.titlesOnly ?? configDefaults.titlesOnly) === true || compact;
+    const noEmpty = (options.noEmpty ?? configDefaults.noEmpty) === true || compact;
 
     if (options.json && (flat || titlesOnly || noEmpty)) {
       console.error(ui.error(withIcon(ui.icons.error, "--json cannot be combined with --flat, --titles-only, --no-empty, or --compact.")));
       process.exit(1);
     }
 
-    const flatWidth = flat
-      ? feeds.feeds.reduce((max, feed) => Math.max(max, feed.name.length), 0)
-      : undefined;
-
-    const maxFlatWidth = Number(options.flatWidth ?? 30);
+    const maxFlatWidth = Number(options.flatWidth ?? configDefaults.flatWidth ?? 30);
     if (Number.isNaN(maxFlatWidth) || maxFlatWidth <= 0) {
       console.error(ui.error(withIcon(ui.icons.error, "--flat-width must be a positive number.")));
       process.exit(1);
     }
 
+    const maxFlatLength = Number(options.flatMaxLength ?? configDefaults.flatMaxLength ?? 160);
+    if (Number.isNaN(maxFlatLength) || maxFlatLength <= 0) {
+      console.error(ui.error(withIcon(ui.icons.error, "--flat-max-length must be a positive number.")));
+      process.exit(1);
+    }
+
     const renderOptions = {
       hyperlinksEnabled,
-      verbose: options.verbose,
+      verbose: options.verbose ?? false,
       flat,
       titlesOnly,
       noEmpty,
       flatWidth: maxFlatWidth,
+      flatMaxLength: maxFlatLength,
       highlightToday: allowBold,
     };
 

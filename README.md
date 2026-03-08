@@ -77,6 +77,30 @@ npm run dev -- fetch
 npm run dev -- fetch --no-highlight-today
 ```
 
+Configuration defaults (optional):
+
+Create `~/.agregato/config.json`:
+
+```bash
+npm run dev -- config init
+```
+
+Or create it manually:
+
+```json
+{
+  "flatWidth": 30,
+  "flatMaxLength": 160,
+  "compact": false,
+  "highlightToday": true,
+  "forceHyperlinks": false,
+  "theme": "default",
+  "icons": true
+}
+```
+
+CLI flags always override config values.
+
 If you only see "No items found" for an Atom feed, re-run after updating to the latest version (Atom items live under `entries`).
 
 ### JSON output

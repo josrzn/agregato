@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `--stream` option to show feed results as they complete.
 - Alternate display modes: `--titles-only`, `--flat` (aligned, truncated), `--no-empty`, and `--compact`.
 - Highlight today's items in bold (disable with `--no-highlight-today`).
+- Config file support (`~/.agregato/config.json`) and flat line length limits (`--flat-max-length`).
+- `config init` command to scaffold the config file.
 
 ### Changed
 - OSC-8 hyperlink formatting updated for iTerm2 compatibility.
