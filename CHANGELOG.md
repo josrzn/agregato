@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [0.3] - 2026-03-08
 ### Added
 - Optional OSC-8 terminal hyperlinks (enable with `--force-hyperlinks`).
 - `--stream` option to show feed results as they complete.
@@ -15,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - OSC-8 hyperlink formatting updated for iTerm2 compatibility.
+- Flat titles-only mode now always preserves a visible title.
 
 ## [0.2] - 2026-03-07
 ### Added

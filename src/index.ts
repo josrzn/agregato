@@ -80,6 +80,8 @@ const formatLink = (label: string, url: string, enabled: boolean) => {
   return `\u001b]8;;${escaped}\u001b\\${label}\u001b]8;;\u001b\\`;
 };
 
+const sanitizeUrl = (value: string) => value.trim();
+
 const truncateText = (value: string, maxLength: number) => {
   if (maxLength <= 0) return "";
   if (value.length <= maxLength) return value;
@@ -344,8 +346,8 @@ const renderFetchResult = (
       console.log(ui.error(message));
       return;
     }
-    console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
-    console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
+    console.log(chalk.reset(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`)));
+    console.log(chalk.reset(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0)))));
     console.log(ui.error(withIcon(ui.icons.error, result.error)));
     return;
   }
@@ -357,15 +359,15 @@ const renderFetchResult = (
       console.log(ui.warn(message));
       return;
     }
-    console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
-    console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
+    console.log(chalk.reset(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`)));
+    console.log(chalk.reset(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0)))));
     console.log(ui.warn(withIcon(ui.icons.warn, "No items found.")));
     return;
   }
 
   if (!options.flat) {
-    console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
-    console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
+    console.log(chalk.reset(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`)));
+    console.log(chalk.reset(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0)))));
   }
 
   result.items.forEach((item) => {
@@ -383,18 +385,58 @@ const renderFetchResult = (
 
     if (options.flat) {
       const maxWidth = options.flatWidth ?? result.feed.name.length;
-      const truncated = result.feed.name.length > maxWidth
+      const truncatedFeed = result.feed.name.length > maxWidth
         ? `${result.feed.name.slice(0, Math.max(0, maxWidth - 1))}…`
         : result.feed.name;
-      const rawLabel = truncated.padEnd(maxWidth);
-      const feedLabel = ui.header(rawLabel);
+      const rawLabel = truncatedFeed.padEnd(maxWidth);
+      const feedLabel = chalk.reset(ui.header(rawLabel));
       const separator = " | ";
+
+      const rawTitle = titleText;
+      const rawDate = item.pubDate ? ` • ${item.pubDate}` : "";
+      const rawLink = item.link ? sanitizeUrl(item.link) : "";
+      const maxContentLength = maxLineLength
+        ? Math.max(0, maxLineLength - (rawLabel.length + separator.length))
+        : undefined;
+
+      let titleBudget = rawTitle.length;
+      let datePart = rawDate;
+      let linkPart = rawLink ? ` ${rawLink}` : "";
+
+      if (maxContentLength !== undefined) {
+        if (options.titlesOnly) {
+          titleBudget = Math.max(1, Math.min(rawTitle.length, maxContentLength));
+          datePart = "";
+          linkPart = "";
+        } else {
+          titleBudget = Math.max(1, Math.min(rawTitle.length, maxContentLength));
+          let remaining = maxContentLength - titleBudget;
+
+          if (datePart && remaining >= datePart.length) {
+            remaining -= datePart.length;
+          } else {
+            datePart = "";
+          }
+
+          if (linkPart && remaining >= linkPart.length) {
+            remaining -= linkPart.length;
+          } else {
+            linkPart = "";
+          }
+        }
+      }
+
+      const trimmedTitle = truncateText(rawTitle, titleBudget);
+      const styledTitle = isToday ? ui.highlight(ui.title(trimmedTitle)) : ui.title(trimmedTitle);
+      const styledDate = datePart ? ui.date(datePart) : "";
+      const styledLink = linkPart
+        ? ui.link(formatLink(linkPart, rawLink, options.hyperlinksEnabled))
+        : "";
+
       const content = options.titlesOnly
-        ? `${title}`
-        : `${title}${date}${link ? ` ${link}` : ""}`;
-      const combined = `${feedLabel}${separator}${content}`;
-      const truncatedLine = maxLineLength ? truncateText(combined, maxLineLength) : combined;
-      console.log(truncatedLine);
+        ? styledTitle
+        : `${styledTitle}${styledDate}${styledLink}`;
+      console.log(chalk.reset(`${feedLabel}${separator}${content}`));
       return;
     }
 
@@ -406,7 +448,7 @@ const renderFetchResult = (
     const linkLine = link
       ? ui.link(`\n  ${withIcon(ui.icons.link, link)}`)
       : "";
-    console.log(`- ${title}${date}${linkLine}`);
+    console.log(chalk.reset(`- ${title}${date}${linkLine}`));
   });
 };
 
