@@ -27,6 +27,7 @@ type UiStyle = {
   title: (text: string) => string;
   date: (text: string) => string;
   link: (text: string) => string;
+  highlight: (text: string) => string;
 };
 
 const createUiStyle = (theme: Theme, iconsEnabled: boolean): UiStyle => {
@@ -67,6 +68,7 @@ const createUiStyle = (theme: Theme, iconsEnabled: boolean): UiStyle => {
     title: colorize(palette.title),
     date: colorize(palette.date),
     link: colorize(palette.link),
+    highlight: noColor ? (text: string) => text : chalk.bold,
   };
 };
 
@@ -265,6 +267,7 @@ const renderFetchResult = (
     titlesOnly: boolean;
     noEmpty: boolean;
     flatWidth?: number;
+    highlightToday: boolean;
   },
 ) => {
   if (result.error) {
@@ -300,7 +303,11 @@ const renderFetchResult = (
 
   result.items.forEach((item) => {
     const titleText = item.title ?? "(untitled)";
-    const title = ui.title(titleText);
+    const parsedDate = parseItemDate(item.pubDate);
+    const isToday = options.highlightToday
+      && parsedDate
+      && parsedDate.toDateString() === new Date().toDateString();
+    const title = isToday ? ui.highlight(ui.title(titleText)) : ui.title(titleText);
     const date = item.pubDate ? ui.date(` • ${item.pubDate}`) : "";
     const link = item.link
       ? formatLink(item.link, item.link, options.hyperlinksEnabled)
@@ -339,10 +346,11 @@ program
   .version("1.0.0")
   .option("--no-icons", "Disable icon output")
   .option("--theme <theme>", "Color theme (default|vivid|mono)", "default")
-  .option("--force-hyperlinks", "Force OSC-8 clickable hyperlinks");
+  .option("--force-hyperlinks", "Force OSC-8 clickable hyperlinks")
+  .option("--no-highlight-today", "Disable highlighting today's items");
 
 const getUi = () => {
-  const opts = program.opts<{ icons: boolean; theme: Theme; forceHyperlinks: boolean }>();
+  const opts = program.opts<{ icons: boolean; theme: Theme; forceHyperlinks: boolean; highlightToday: boolean }>();
   const theme = (opts.theme ?? "default") as Theme;
   if (!(["default", "vivid", "mono"] as Theme[]).includes(theme)) {
     console.error(chalk.red(`❌ Invalid theme '${theme}'. Use default, vivid, or mono.`));
@@ -350,7 +358,8 @@ const getUi = () => {
   }
   const iconsEnabled = opts.icons !== false;
   const hyperlinksEnabled = opts.forceHyperlinks === true;
-  return { ui: createUiStyle(theme, iconsEnabled), hyperlinksEnabled };
+  const allowBold = opts.highlightToday !== false;
+  return { ui: createUiStyle(theme, iconsEnabled), hyperlinksEnabled, allowBold };
 };
 
 program
@@ -471,7 +480,7 @@ program
   .option("--compact", "Shortcut for --flat --titles-only --no-empty", false)
   .option("--flat-width <number>", "Max feed name width in flat mode", "30")
   .action(async (options) => {
-    const { ui, hyperlinksEnabled } = getUi();
+    const { ui, hyperlinksEnabled, allowBold } = getUi();
     const feeds = loadFeeds();
     if (feeds.feeds.length === 0) {
       console.log(ui.warn(withIcon(ui.icons.warn, "No feeds saved yet. Add one with 'agregato add'.")));
@@ -511,6 +520,7 @@ program
       titlesOnly,
       noEmpty,
       flatWidth: maxFlatWidth,
+      highlightToday: allowBold,
     };
 
     const results: FetchResult[] = [];

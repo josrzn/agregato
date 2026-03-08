@@ -70,6 +70,13 @@ npm run dev -- fetch --flat --titles-only --no-empty
 npm run dev -- fetch --compact
 ```
 
+Highlight today's items in bold (disable with `--no-highlight-today`):
+
+```bash
+npm run dev -- fetch
+npm run dev -- fetch --no-highlight-today
+```
+
 If you only see "No items found" for an Atom feed, re-run after updating to the latest version (Atom items live under `entries`).
 
 ### JSON output
