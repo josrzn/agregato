@@ -7,10 +7,20 @@ import os from "node:os";
 import chalk from "chalk";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
 import { extractFromXml } from "@extractus/feed-extractor";
+import {
+  DEFAULT_CONFIG,
+  Feed,
+  OpmlImportState,
+  StoredFeeds,
+  Theme,
+  collectOpmlFeeds,
+  loadConfig,
+  mostRecentItemDate,
+  parseItemDate,
+  truncateText,
+} from "./lib";
 
 const program = new Command();
-
-type Theme = "default" | "vivid" | "mono";
 
 type UiStyle = {
   icons: {
@@ -82,72 +92,10 @@ const formatLink = (label: string, url: string, enabled: boolean) => {
 
 const sanitizeUrl = (value: string) => value.trim();
 
-const truncateText = (value: string, maxLength: number) => {
-  if (maxLength <= 0) return "";
-  if (value.length <= maxLength) return value;
-  if (maxLength === 1) return "…";
-  return `${value.slice(0, maxLength - 1)}…`;
-};
-
 const flagPresent = (flag: string) => process.argv.includes(flag);
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
 const xmlBuilder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: "@_", format: true });
-
-const normalizeOpmlAttr = (outline: Record<string, unknown>, keys: string[]): string | undefined => {
-  const candidates = new Map<string, unknown>();
-  Object.entries(outline).forEach(([key, value]) => {
-    candidates.set(key.toLowerCase(), value);
-  });
-  for (const key of keys) {
-    const direct = outline[key];
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
-    const prefixed = outline[`@_${key}`];
-    if (typeof prefixed === "string" && prefixed.trim()) return prefixed.trim();
-    const lower = candidates.get(key.toLowerCase());
-    if (typeof lower === "string" && lower.trim()) return lower.trim();
-  }
-  return undefined;
-};
-
-type OpmlImportState = {
-  feeds: Feed[];
-  skipped: number;
-};
-
-const resolveOpmlFeedUrl = (outline: Record<string, unknown>): string | undefined => {
-  const xmlUrl = normalizeOpmlAttr(outline, ["xmlUrl", "xmlurl", "feedUrl", "feedurl"]);
-  if (xmlUrl) return xmlUrl;
-  const type = normalizeOpmlAttr(outline, ["type"])?.toLowerCase();
-  const url = normalizeOpmlAttr(outline, ["url"]);
-  if (url && (type === "rss" || type === "atom" || type === "feed")) {
-    return url;
-  }
-  return undefined;
-};
-
-const collectOpmlFeeds = (nodes: unknown, state: OpmlImportState) => {
-  if (!nodes) return;
-  if (Array.isArray(nodes)) {
-    nodes.forEach((node) => collectOpmlFeeds(node, state));
-    return;
-  }
-  if (typeof nodes === "object") {
-    const outline = nodes as Record<string, unknown>;
-    const xmlUrl = resolveOpmlFeedUrl(outline);
-    const title = normalizeOpmlAttr(outline, ["title", "text", "name"])
-      ?? normalizeOpmlAttr(outline, ["htmlUrl", "htmlurl"]);
-    if (xmlUrl) {
-      state.feeds.push({ name: title ?? xmlUrl, url: xmlUrl });
-    } else if (normalizeOpmlAttr(outline, ["outline", "text", "title", "name"]) || outline["outline"]) {
-      state.skipped += 1;
-    }
-    const children = outline["outline"] as unknown;
-    if (children) {
-      collectOpmlFeeds(children, state);
-    }
-  }
-};
 
 const buildOpml = (feeds: Feed[]): string => {
   const outlines = feeds.map((feed) => ({
@@ -172,68 +120,15 @@ const buildOpml = (feeds: Feed[]): string => {
   return xmlBuilder.build(opml);
 };
 
-const parseItemDate = (value?: string): Date | null => {
-  if (!value) return null;
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return null;
-  return new Date(timestamp);
-};
-
-const mostRecentItemDate = (items: Array<{ published?: string; updated?: string }>): Date | null => {
-  let mostRecent: Date | null = null;
-  for (const item of items) {
-    const candidate = parseItemDate(item.published) ?? parseItemDate(item.updated);
-    if (!candidate) continue;
-    if (!mostRecent || candidate > mostRecent) {
-      mostRecent = candidate;
-    }
-  }
-  return mostRecent;
-};
 
 const APP_DIR = path.join(os.homedir(), ".agregato");
 const FEEDS_FILE = path.join(APP_DIR, "feeds.json");
 const CONFIG_FILE = path.join(APP_DIR, "config.json");
 
-type Feed = {
-  name: string;
-  url: string;
-};
-
 type FetchResult = {
   feed: Feed;
   items: Array<{ title?: string; link?: string; pubDate?: string; published?: string; updated?: string }>;
   error?: string;
-};
-
-type StoredFeeds = {
-  feeds: Feed[];
-};
-
-type AppConfig = {
-  flatWidth?: number;
-  flatMaxLength?: number;
-  flat?: boolean;
-  titlesOnly?: boolean;
-  noEmpty?: boolean;
-  compact?: boolean;
-  highlightToday?: boolean;
-  forceHyperlinks?: boolean;
-  theme?: Theme;
-  icons?: boolean;
-};
-
-const DEFAULT_CONFIG: Required<AppConfig> = {
-  flatWidth: 30,
-  flatMaxLength: 160,
-  flat: false,
-  titlesOnly: false,
-  noEmpty: false,
-  compact: false,
-  highlightToday: true,
-  forceHyperlinks: false,
-  theme: "default",
-  icons: true,
 };
 
 const ensureStorage = () => {
@@ -246,20 +141,8 @@ const ensureStorage = () => {
   }
 };
 
-const loadConfig = (configPath = CONFIG_FILE, required = false): Required<AppConfig> => {
-  ensureStorage();
-  if (!fs.existsSync(configPath)) {
-    if (required) {
-      throw new Error(`Config file not found at ${configPath}`);
-    }
-    return { ...DEFAULT_CONFIG };
-  }
-  const content = fs.readFileSync(configPath, "utf-8");
-  const parsed = JSON.parse(content) as AppConfig;
-  return { ...DEFAULT_CONFIG, ...parsed };
-};
 
-const readConfigForProgram = (): Required<AppConfig> => {
+const readConfigForProgram = (): ReturnType<typeof loadConfig> => {
   const configIndex = process.argv.indexOf("--config");
   const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : undefined;
   if (configIndex >= 0 && !configPath) {
@@ -463,15 +346,21 @@ program
   .option("--config <path>", "Path to config file (default ~/.agregato/config.json)");
 
 const getUi = () => {
-  const opts = program.opts<{ icons?: boolean; theme?: Theme; forceHyperlinks?: boolean; highlightToday?: boolean }>();
+  const opts = program.opts<{ theme?: Theme }>();
   const theme = (opts.theme ?? configDefaults.theme ?? "default") as Theme;
   if (!(["default", "vivid", "mono"] as Theme[]).includes(theme)) {
     console.error(chalk.red(`❌ Invalid theme '${theme}'. Use default, vivid, or mono.`));
     process.exit(1);
   }
-  const iconsEnabled = opts.icons ?? configDefaults.icons ?? true;
-  const hyperlinksEnabled = opts.forceHyperlinks ?? configDefaults.forceHyperlinks ?? false;
-  const allowBold = opts.highlightToday ?? configDefaults.highlightToday ?? true;
+  const iconsEnabled = flagPresent("--no-icons")
+    ? false
+    : (configDefaults.icons ?? true);
+  const hyperlinksEnabled = flagPresent("--force-hyperlinks")
+    ? true
+    : (configDefaults.forceHyperlinks ?? false);
+  const allowBold = flagPresent("--no-highlight-today")
+    ? false
+    : (configDefaults.highlightToday ?? true);
   return { ui: createUiStyle(theme, iconsEnabled), hyperlinksEnabled, allowBold };
 };
 
