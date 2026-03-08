@@ -6,7 +6,6 @@ import path from "node:path";
 import os from "node:os";
 import chalk from "chalk";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
-import { extractFromXml } from "@extractus/feed-extractor";
 import {
   DEFAULT_CONFIG,
   Feed,
@@ -14,6 +13,8 @@ import {
   StoredFeeds,
   Theme,
   collectOpmlFeeds,
+  computeFlatParts,
+  extractItemsFromXml,
   loadConfig,
   mostRecentItemDate,
   parseItemDate,
@@ -183,6 +184,7 @@ const fetchFeed = async (feed: Feed): Promise<FetchResult> => {
       headers: {
         "User-Agent": "Agregato/0.1 (+https://example.com)",
         Accept: "application/rss+xml, application/atom+xml, text/xml, application/xml;q=0.9, */*;q=0.8",
+        Connection: "close",
       },
     });
     if (!response.ok) {
@@ -193,8 +195,7 @@ const fetchFeed = async (feed: Feed): Promise<FetchResult> => {
     if (!xml.trim().startsWith("<") && !contentType.includes("xml")) {
       throw new Error("Response was not XML");
     }
-    const parsed = await extractFromXml(xml);
-    const entries = (parsed.items ?? parsed.entries ?? []) as Array<{ title?: string; link?: string; published?: string; updated?: string }>;
+    const entries = await extractItemsFromXml(xml);
     const items = entries.map((item) => ({
       title: item.title,
       link: item.link,
@@ -282,38 +283,20 @@ const renderFetchResult = (
         ? Math.max(0, maxLineLength - (rawLabel.length + separator.length))
         : undefined;
 
-      let titleBudget = rawTitle.length;
-      let datePart = rawDate;
-      let linkPart = rawLink ? ` ${rawLink}` : "";
+      const flatParts = computeFlatParts({
+        title: rawTitle,
+        date: rawDate,
+        link: rawLink,
+        maxContentLength,
+        titlesOnly: options.titlesOnly,
+      });
 
-      if (maxContentLength !== undefined) {
-        if (options.titlesOnly) {
-          titleBudget = Math.max(1, Math.min(rawTitle.length, maxContentLength));
-          datePart = "";
-          linkPart = "";
-        } else {
-          titleBudget = Math.max(1, Math.min(rawTitle.length, maxContentLength));
-          let remaining = maxContentLength - titleBudget;
-
-          if (datePart && remaining >= datePart.length) {
-            remaining -= datePart.length;
-          } else {
-            datePart = "";
-          }
-
-          if (linkPart && remaining >= linkPart.length) {
-            remaining -= linkPart.length;
-          } else {
-            linkPart = "";
-          }
-        }
-      }
-
-      const trimmedTitle = truncateText(rawTitle, titleBudget);
-      const styledTitle = isToday ? ui.highlight(ui.title(trimmedTitle)) : ui.title(trimmedTitle);
-      const styledDate = datePart ? ui.date(datePart) : "";
-      const styledLink = linkPart
-        ? ui.link(formatLink(linkPart, rawLink, options.hyperlinksEnabled))
+      const styledTitle = isToday
+        ? ui.highlight(ui.title(flatParts.title))
+        : ui.title(flatParts.title);
+      const styledDate = flatParts.date ? ui.date(flatParts.date) : "";
+      const styledLink = flatParts.link
+        ? ui.link(formatLink(flatParts.link, rawLink, options.hyperlinksEnabled))
         : "";
 
       const content = options.titlesOnly
@@ -422,7 +405,7 @@ program
   .argument("<file>", "Path to OPML file")
   .option("--merge", "Merge with existing feeds instead of replacing", false)
   .action((file, options) => {
-    const ui = getUi();
+    const { ui } = getUi();
     const content = fs.readFileSync(file, "utf-8");
     const parsed = xmlParser.parse(content) as Record<string, unknown>;
     const opml = parsed?.opml as Record<string, unknown> | undefined;

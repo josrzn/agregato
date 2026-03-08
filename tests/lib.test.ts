@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
   collectOpmlFeeds,
+  computeFlatParts,
+  extractItemsFromXml,
   loadConfig,
   resolveOpmlFeedUrl,
   truncateText,
@@ -66,5 +68,50 @@ describe("OPML parsing", () => {
       state,
     );
     expect(state.feeds).toHaveLength(2);
+  });
+});
+
+describe("computeFlatParts", () => {
+  it("keeps title and drops date/link when space is tight", () => {
+    const parts = computeFlatParts({
+      title: "A long title",
+      date: " • 2026-03-08",
+      link: "https://example.com",
+      maxContentLength: 10,
+      titlesOnly: false,
+    });
+    expect(parts.title.length).toBeGreaterThan(0);
+    expect(parts.date).toBe("");
+    expect(parts.link).toBe("");
+  });
+
+  it("respects titlesOnly", () => {
+    const parts = computeFlatParts({
+      title: "Hello world",
+      date: " • 2026-03-08",
+      link: "https://example.com",
+      maxContentLength: 6,
+      titlesOnly: true,
+    });
+    expect(parts.title).toBe("Hello…");
+    expect(parts.date).toBe("");
+    expect(parts.link).toBe("");
+  });
+});
+
+describe("extractItemsFromXml", () => {
+  it("extracts items from Atom entries", async () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+      <feed xmlns="http://www.w3.org/2005/Atom">
+        <title>Example</title>
+        <entry>
+          <title>Item 1</title>
+          <link href="https://example.com/1" />
+          <published>2026-03-08T00:00:00Z</published>
+        </entry>
+      </feed>`;
+    const items = await extractItemsFromXml(xml);
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe("Item 1");
   });
 });

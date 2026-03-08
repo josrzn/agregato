@@ -130,3 +130,68 @@ export const collectOpmlFeeds = (nodes: unknown, state: OpmlImportState) => {
   }
 };
 
+export type ExtractedItem = {
+  title?: string;
+  link?: string;
+  published?: string;
+  updated?: string;
+};
+
+export const extractItemsFromXml = async (xml: string): Promise<ExtractedItem[]> => {
+  const { extractFromXml } = await import("@extractus/feed-extractor");
+  const parsed = await extractFromXml(xml) as unknown as { items?: ExtractedItem[]; entries?: ExtractedItem[] };
+  const entries = (parsed.items ?? parsed.entries ?? []) as ExtractedItem[];
+  return entries.map((item) => ({
+    title: item.title,
+    link: item.link,
+    published: item.published,
+    updated: item.updated,
+  }));
+};
+
+export const computeFlatParts = (params: {
+  title: string;
+  date: string;
+  link: string;
+  maxContentLength?: number;
+  titlesOnly: boolean;
+}) => {
+  const rawTitle = params.title;
+  const rawDate = params.date;
+  const rawLink = params.link;
+  const maxContentLength = params.maxContentLength;
+
+  let titleBudget = rawTitle.length;
+  let datePart = rawDate;
+  let linkPart = rawLink ? ` ${rawLink}` : "";
+
+  if (maxContentLength !== undefined) {
+    if (params.titlesOnly) {
+      titleBudget = Math.max(1, Math.min(rawTitle.length, maxContentLength));
+      datePart = "";
+      linkPart = "";
+    } else {
+      titleBudget = Math.max(1, Math.min(rawTitle.length, maxContentLength));
+      let remaining = maxContentLength - titleBudget;
+
+      if (datePart && remaining >= datePart.length) {
+        remaining -= datePart.length;
+      } else {
+        datePart = "";
+      }
+
+      if (linkPart && remaining >= linkPart.length) {
+        remaining -= linkPart.length;
+      } else {
+        linkPart = "";
+      }
+    }
+  }
+
+  return {
+    title: truncateText(rawTitle, titleBudget),
+    date: datePart,
+    link: linkPart,
+  };
+};
+
