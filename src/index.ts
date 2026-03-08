@@ -284,9 +284,12 @@ const renderFetchResult = (
       });
 
       const feedLabel = chalk.reset(ui.header(flatParts.feedLabel));
-      const styledTitle = isToday
+      const styledTitleBase = isToday
         ? ui.highlight(ui.title(flatParts.title))
         : ui.title(flatParts.title);
+      const styledTitle = options.titlesOnly && rawLink && options.hyperlinksEnabled
+        ? formatLink(styledTitleBase, rawLink, true)
+        : styledTitleBase;
       const styledDate = flatParts.date ? ui.date(flatParts.date) : "";
       const styledLink = flatParts.link
         ? ui.link(formatLink(flatParts.link, rawLink, options.hyperlinksEnabled))
@@ -300,7 +303,10 @@ const renderFetchResult = (
     }
 
     if (options.titlesOnly) {
-      console.log(`- ${title}`);
+      const linkedTitle = item.link && options.hyperlinksEnabled
+        ? formatLink(title, item.link, true)
+        : title;
+      console.log(`- ${linkedTitle}`);
       return;
     }
 

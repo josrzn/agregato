@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [0.4] - 2026-03-08
 ### Changed
 - Upgraded Vitest to 4.0.18 (addresses audit warnings).
 - Added test setup with Vitest, CLI integration tests, and coverage reporting; moved more logic into shared utilities.
+- In titles-only mode, feed item titles can be clickable when hyperlinks are enabled.
+- Added CLI test coverage for OSC-8 hyperlink output.
 
 ## [0.3] - 2026-03-08
 ### Added

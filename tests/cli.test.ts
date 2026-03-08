@@ -72,6 +72,7 @@ describe("CLI integration", () => {
       "--flat-max-length",
       "120",
       "--no-highlight-today",
+      "--force-hyperlinks",
     ], env);
     if (fetch.status !== 0) {
       throw new Error(`Fetch failed (status ${fetch.status}):\n${fetch.stderr}`);
@@ -79,6 +80,9 @@ describe("CLI integration", () => {
     const output = stripAnsi(fetch.stdout);
     if (!output.includes("Test") || !output.includes("Hello World")) {
       throw new Error(`Unexpected output:\n${output}\nSTDERR:\n${fetch.stderr}`);
+    }
+    if (!fetch.stdout.includes("\u001b]8;;https://example.com/hello\u001b\\")) {
+      throw new Error(`Missing OSC-8 hyperlink:\n${fetch.stdout}`);
     }
   });
 
