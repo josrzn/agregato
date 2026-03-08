@@ -14,12 +14,11 @@ import {
   Theme,
   collectOpmlFeeds,
   computeFlatRenderParts,
-  computeFlatParts,
   extractItemsFromXml,
   loadConfig,
   mostRecentItemDate,
   parseItemDate,
-  truncateText,
+  resolveRenderSettings,
 } from "./lib";
 
 const program = new Command();
@@ -490,36 +489,27 @@ program
       process.exit(1);
     }
 
-    const compact = (options.compact ?? configDefaults.compact) === true;
-    const flat = (options.flat ?? configDefaults.flat) === true || compact;
-    const titlesOnly = (options.titlesOnly ?? configDefaults.titlesOnly) === true || compact;
-    const noEmpty = (options.noEmpty ?? configDefaults.noEmpty) === true || compact;
+    let renderSettings;
+    try {
+      renderSettings = resolveRenderSettings(options, configDefaults);
+    } catch (error) {
+      console.error(ui.error(withIcon(ui.icons.error, (error as Error).message)));
+      process.exit(1);
+    }
 
-    if (options.json && (flat || titlesOnly || noEmpty)) {
+    if (options.json && (renderSettings.flat || renderSettings.titlesOnly || renderSettings.noEmpty)) {
       console.error(ui.error(withIcon(ui.icons.error, "--json cannot be combined with --flat, --titles-only, --no-empty, or --compact.")));
-      process.exit(1);
-    }
-
-    const maxFlatWidth = Number(options.flatWidth ?? configDefaults.flatWidth ?? 30);
-    if (Number.isNaN(maxFlatWidth) || maxFlatWidth <= 0) {
-      console.error(ui.error(withIcon(ui.icons.error, "--flat-width must be a positive number.")));
-      process.exit(1);
-    }
-
-    const maxFlatLength = Number(options.flatMaxLength ?? configDefaults.flatMaxLength ?? 160);
-    if (Number.isNaN(maxFlatLength) || maxFlatLength <= 0) {
-      console.error(ui.error(withIcon(ui.icons.error, "--flat-max-length must be a positive number.")));
       process.exit(1);
     }
 
     const renderOptions = {
       hyperlinksEnabled,
       verbose: options.verbose ?? false,
-      flat,
-      titlesOnly,
-      noEmpty,
-      flatWidth: maxFlatWidth,
-      flatMaxLength: maxFlatLength,
+      flat: renderSettings.flat,
+      titlesOnly: renderSettings.titlesOnly,
+      noEmpty: renderSettings.noEmpty,
+      flatWidth: renderSettings.flatWidth,
+      flatMaxLength: renderSettings.flatMaxLength,
       highlightToday: allowBold,
     };
 

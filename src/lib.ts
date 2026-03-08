@@ -24,6 +24,15 @@ export type AppConfig = {
   icons?: boolean;
 };
 
+export type RenderSettings = {
+  compact: boolean;
+  flat: boolean;
+  titlesOnly: boolean;
+  noEmpty: boolean;
+  flatWidth: number;
+  flatMaxLength: number;
+};
+
 export const DEFAULT_CONFIG: Required<AppConfig> = {
   flatWidth: 30,
   flatMaxLength: 160,
@@ -235,6 +244,39 @@ export const computeFlatRenderParts = (options: FlatRenderOptions): FlatRenderPa
     title: parts.title,
     date: parts.date,
     link: parts.link,
+  };
+};
+
+export const resolveRenderSettings = (options: {
+  compact?: boolean;
+  flat?: boolean;
+  titlesOnly?: boolean;
+  noEmpty?: boolean;
+  flatWidth?: number;
+  flatMaxLength?: number;
+}, config: Required<AppConfig>): RenderSettings => {
+  const compact = (options.compact ?? config.compact) === true;
+  const flat = (options.flat ?? config.flat) === true || compact;
+  const titlesOnly = (options.titlesOnly ?? config.titlesOnly) === true || compact;
+  const noEmpty = (options.noEmpty ?? config.noEmpty) === true || compact;
+
+  const flatWidth = Number(options.flatWidth ?? config.flatWidth ?? DEFAULT_CONFIG.flatWidth);
+  if (Number.isNaN(flatWidth) || flatWidth <= 0) {
+    throw new Error("--flat-width must be a positive number.");
+  }
+
+  const flatMaxLength = Number(options.flatMaxLength ?? config.flatMaxLength ?? DEFAULT_CONFIG.flatMaxLength);
+  if (Number.isNaN(flatMaxLength) || flatMaxLength <= 0) {
+    throw new Error("--flat-max-length must be a positive number.");
+  }
+
+  return {
+    compact,
+    flat,
+    titlesOnly,
+    noEmpty,
+    flatWidth,
+    flatMaxLength,
   };
 };
 

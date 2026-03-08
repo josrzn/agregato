@@ -7,6 +7,7 @@ import {
   extractItemsFromXml,
   loadConfig,
   resolveOpmlFeedUrl,
+  resolveRenderSettings,
   truncateText,
 } from "../src/lib";
 import fs from "node:fs";
@@ -110,6 +111,33 @@ describe("computeFlatParts", () => {
     expect(parts.title).toBe("Hello…");
     expect(parts.date).toBe("");
     expect(parts.link).toBe("");
+  });
+});
+
+describe("computeFlatRenderParts", () => {
+  it("truncates feed labels", () => {
+    const parts = computeFlatRenderParts({
+      feedName: "Long Feed Name",
+      title: "Title",
+      date: "",
+      link: "",
+      maxWidth: 5,
+      titlesOnly: true,
+    });
+    expect(parts.feedLabel).toBe("Long…");
+  });
+});
+
+describe("resolveRenderSettings", () => {
+  it("applies compact preset", () => {
+    const settings = resolveRenderSettings({ compact: true }, DEFAULT_CONFIG);
+    expect(settings.flat).toBe(true);
+    expect(settings.titlesOnly).toBe(true);
+    expect(settings.noEmpty).toBe(true);
+  });
+
+  it("validates flat width", () => {
+    expect(() => resolveRenderSettings({ flatWidth: 0 }, DEFAULT_CONFIG)).toThrow();
   });
 });
 
