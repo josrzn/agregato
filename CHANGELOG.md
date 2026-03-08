@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Optional OSC-8 terminal hyperlinks (enable with `--force-hyperlinks`).
 - `--stream` option to show feed results as they complete.
+- Alternate display modes: `--titles-only`, `--flat` (aligned, truncated), `--no-empty`, and `--compact`.
 
 ### Changed
 - OSC-8 hyperlink formatting updated for iTerm2 compatibility.

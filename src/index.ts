@@ -258,29 +258,78 @@ const fetchFeed = async (feed: Feed): Promise<FetchResult> => {
 const renderFetchResult = (
   result: FetchResult,
   ui: UiStyle,
-  hyperlinksEnabled: boolean,
-  verbose: boolean,
+  options: {
+    hyperlinksEnabled: boolean;
+    verbose: boolean;
+    flat: boolean;
+    titlesOnly: boolean;
+    noEmpty: boolean;
+    flatWidth?: number;
+  },
 ) => {
-  if (result.error && !verbose) {
-    return;
-  }
-  console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
-  console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
   if (result.error) {
+    if (!options.verbose) return;
+    if (options.flat) {
+      const message = `${withIcon(ui.icons.error, result.feed.name)}: ${result.error}`;
+      console.log(ui.error(message));
+      return;
+    }
+    console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
+    console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
     console.log(ui.error(withIcon(ui.icons.error, result.error)));
     return;
   }
+
   if (result.items.length === 0) {
+    if (options.noEmpty) return;
+    if (options.flat) {
+      const message = `${withIcon(ui.icons.warn, result.feed.name)}: No items found.`;
+      console.log(ui.warn(message));
+      return;
+    }
+    console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
+    console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
     console.log(ui.warn(withIcon(ui.icons.warn, "No items found.")));
     return;
   }
+
+  if (!options.flat) {
+    console.log(ui.header(`\n${withIcon(ui.icons.feed, result.feed.name)}`));
+    console.log(ui.header("-".repeat(result.feed.name.length + (ui.icons.feed ? 2 : 0))));
+  }
+
   result.items.forEach((item) => {
-    const title = ui.title(item.title ?? "(untitled)");
+    const titleText = item.title ?? "(untitled)";
+    const title = ui.title(titleText);
     const date = item.pubDate ? ui.date(` • ${item.pubDate}`) : "";
     const link = item.link
-      ? ui.link(`\n  ${withIcon(ui.icons.link, formatLink(item.link, item.link, hyperlinksEnabled))}`)
+      ? formatLink(item.link, item.link, options.hyperlinksEnabled)
       : "";
-    console.log(`- ${title}${date}${link}`);
+
+    if (options.flat) {
+      const maxWidth = options.flatWidth ?? result.feed.name.length;
+      const truncated = result.feed.name.length > maxWidth
+        ? `${result.feed.name.slice(0, Math.max(0, maxWidth - 1))}…`
+        : result.feed.name;
+      const rawLabel = truncated.padEnd(maxWidth);
+      const feedLabel = ui.header(rawLabel);
+      const separator = " | ";
+      const flatLine = options.titlesOnly
+        ? `${feedLabel}${separator}${title}`
+        : `${feedLabel}${separator}${title}${date}${link ? ` ${link}` : ""}`;
+      console.log(flatLine);
+      return;
+    }
+
+    if (options.titlesOnly) {
+      console.log(`- ${title}`);
+      return;
+    }
+
+    const linkLine = link
+      ? ui.link(`\n  ${withIcon(ui.icons.link, link)}`)
+      : "";
+    console.log(`- ${title}${date}${linkLine}`);
   });
 };
 
@@ -416,6 +465,11 @@ program
   .option("-j, --json", "Output JSON instead of plain text", false)
   .option("-v, --verbose", "Show errors for feeds that fail to fetch", false)
   .option("-s, --stream", "Stream results as each feed completes", false)
+  .option("--titles-only", "Show only item titles", false)
+  .option("--flat", "Show one item per line across feeds", false)
+  .option("--no-empty", "Hide feeds with no items", false)
+  .option("--compact", "Shortcut for --flat --titles-only --no-empty", false)
+  .option("--flat-width <number>", "Max feed name width in flat mode", "30")
   .action(async (options) => {
     const { ui, hyperlinksEnabled } = getUi();
     const feeds = loadFeeds();
@@ -430,6 +484,35 @@ program
       process.exit(1);
     }
 
+    const compact = options.compact === true;
+    const flat = options.flat || compact;
+    const titlesOnly = options.titlesOnly || compact;
+    const noEmpty = options.noEmpty || compact;
+
+    if (options.json && (flat || titlesOnly || noEmpty)) {
+      console.error(ui.error(withIcon(ui.icons.error, "--json cannot be combined with --flat, --titles-only, --no-empty, or --compact.")));
+      process.exit(1);
+    }
+
+    const flatWidth = flat
+      ? feeds.feeds.reduce((max, feed) => Math.max(max, feed.name.length), 0)
+      : undefined;
+
+    const maxFlatWidth = Number(options.flatWidth ?? 30);
+    if (Number.isNaN(maxFlatWidth) || maxFlatWidth <= 0) {
+      console.error(ui.error(withIcon(ui.icons.error, "--flat-width must be a positive number.")));
+      process.exit(1);
+    }
+
+    const renderOptions = {
+      hyperlinksEnabled,
+      verbose: options.verbose,
+      flat,
+      titlesOnly,
+      noEmpty,
+      flatWidth: maxFlatWidth,
+    };
+
     const results: FetchResult[] = [];
 
     for (const feed of feeds.feeds) {
@@ -442,7 +525,7 @@ program
         if (options.json) {
           console.log(JSON.stringify(result));
         } else {
-          renderFetchResult(result, ui, hyperlinksEnabled, options.verbose);
+          renderFetchResult(result, ui, renderOptions);
         }
       }
 
@@ -459,7 +542,7 @@ program
     }
 
     for (const result of results) {
-      renderFetchResult(result, ui, hyperlinksEnabled, options.verbose);
+      renderFetchResult(result, ui, renderOptions);
     }
   });
 

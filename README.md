@@ -48,6 +48,28 @@ Stream results as they complete:
 npm run dev -- fetch --stream
 ```
 
+Alternate display modes:
+
+```bash
+# Titles only
+npm run dev -- fetch --titles-only
+
+# Flat list across feeds (aligned columns, truncated names)
+npm run dev -- fetch --flat
+
+# Override width
+npm run dev -- fetch --flat --flat-width 25
+
+# Hide empty feeds
+npm run dev -- fetch --no-empty
+
+# Combine options
+npm run dev -- fetch --flat --titles-only --no-empty
+
+# Compact preset
+npm run dev -- fetch --compact
+```
+
 If you only see "No items found" for an Atom feed, re-run after updating to the latest version (Atom items live under `entries`).
 
 ### JSON output
